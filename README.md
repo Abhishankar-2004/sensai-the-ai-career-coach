@@ -2,8 +2,6 @@
 
 A comprehensive career development platform powered by AI to help users build resumes, prepare for interviews, and create cover letters.
 
-![Sensai - The AI Career Coach](https://github.com/user-attachments/assets/eee79242-4056-4d19-b655-2873788979e1)
-
 ## Features
 
 ### Resume Builder
