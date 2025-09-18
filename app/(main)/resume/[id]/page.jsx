@@ -2,7 +2,7 @@ import { getResume } from "@/actions/resume";
 import ResumeBuilder from "../_components/resume-builder";
 import { notFound } from "next/navigation";
 
-export default async function ResumeDetailPage({ params }) {
+export default async function ResumeDetailPage() {
   const resume = await getResume();
 
   if (!resume) {

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-export async function POST(req) {
+export async function POST() {
   try {
     console.log("Test upload API called");
     return NextResponse.json({ message: "Test API working" });
@@ -10,6 +10,6 @@ export async function POST(req) {
   }
 }
 
-export async function GET(req) {
+export async function GET() {
   return NextResponse.json({ message: "Test API GET working" });
 }

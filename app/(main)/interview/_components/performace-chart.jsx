@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  LineChart,
   Line,
   XAxis,
   YAxis,
@@ -11,8 +10,6 @@ import {
   Legend,
   BarChart,
   Bar,
-  AreaChart,
-  Area,
   ComposedChart,
   Cell,
   PieChart,
@@ -34,7 +31,6 @@ import {
   BarChart as BarChartIcon, 
   PieChart as PieChartIcon,
   LineChart as LineChartIcon,
-  Calendar,
   Award,
   Target,
   Zap

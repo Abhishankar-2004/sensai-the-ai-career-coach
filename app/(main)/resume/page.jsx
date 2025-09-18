@@ -2,7 +2,7 @@ import { getResume } from "@/actions/resume";
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import ResumeBuilder from "./_components/resume-builder";
+
 import ResumeList from "./_components/resume-list";
 
 export default async function ResumePage() {

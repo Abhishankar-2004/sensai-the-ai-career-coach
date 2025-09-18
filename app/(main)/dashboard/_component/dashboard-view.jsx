@@ -23,7 +23,6 @@ import {
   TrendingUp,
   TrendingDown,
   Brain,
-  Calendar,
   DollarSign,
   Users,
   Zap,
@@ -38,7 +37,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const DashboardView = ({ insights }) => {
   const [activeTab, setActiveTab] = useState("salary");
