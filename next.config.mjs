@@ -10,6 +10,8 @@ const nextConfig = {
     ],
     domains: ["images.clerk.dev"],
   },
+  // Netlify deployment optimizations
+  trailingSlash: false,
   // Add a comment with the project name
   // Project: Sensai - The AI Career Coach
 };
