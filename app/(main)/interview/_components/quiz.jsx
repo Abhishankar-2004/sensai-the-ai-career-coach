@@ -13,15 +13,19 @@ import {
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { generateQuiz, saveQuizResult } from "@/actions/interview";
+
 import QuizResult from "./quiz-result";
 import useFetch from "@/hooks/use-fetch";
 import { BarLoader } from "react-spinners";
+import { Slider } from "@/components/ui/slider";
 
-export default function Quiz() {
+export default function Quiz({ jobDescription, questionTypes }) {
+  console.log("Quiz component received questionTypes:", questionTypes);
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [answers, setAnswers] = useState([]);
   const [showExplanation, setShowExplanation] = useState(false);
   const [error, setError] = useState(null);
+  const [questionCount, setQuestionCount] = useState(10);
 
   const {
     loading: generatingQuiz,
@@ -86,7 +90,7 @@ export default function Quiz() {
   const finishQuiz = async () => {
     const score = calculateScore();
     try {
-      await saveQuizResultFn(quizData, answers, score);
+      await saveQuizResultFn(quizData, answers, score, questionTypes);
       toast.success("Quiz completed!");
     } catch (error) {
       toast.error(error.message || "Failed to save quiz results");
@@ -98,7 +102,7 @@ export default function Quiz() {
     setAnswers([]);
     setShowExplanation(false);
     setError(null);
-    generateQuizFn();
+    generateQuizFn(jobDescription, questionTypes, questionCount);
     setResultData(null);
   };
 
@@ -153,13 +157,31 @@ export default function Quiz() {
         </CardHeader>
         <CardContent>
           <p className="text-muted-foreground">
-            This quiz contains 10 questions specific to your industry and
-            skills. Take your time and choose the best answer for each question.
+            This quiz can have between 5 and 20 questions specific to the job description.
+            Take your time and choose the best answer for each question.
           </p>
+          <div className="mt-6">
+            <Label htmlFor="question-count" className="mb-2 block">
+              Number of Questions: {questionCount}
+            </Label>
+            <Slider
+              id="question-count"
+              min={5}
+              max={20}
+              step={1}
+              value={[questionCount]}
+              onValueChange={(value) => setQuestionCount(value[0])}
+              className="w-full"
+            />
+          </div>
         </CardContent>
         <CardFooter>
-          <Button onClick={generateQuizFn} className="w-full">
-            Start Quiz
+          <Button
+            onClick={() => generateQuizFn(jobDescription, questionTypes, questionCount)}
+            className="w-full"
+            disabled={generatingQuiz}
+          >
+            {generatingQuiz ? "Generating..." : "Start Quiz"}
           </Button>
         </CardFooter>
       </Card>

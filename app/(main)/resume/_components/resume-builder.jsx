@@ -1,11 +1,10 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   AlertTriangle,
-  Download,
   Edit,
   Loader2,
   Monitor,
@@ -27,16 +26,10 @@ import { Input } from "@/components/ui/input";
 import { saveResume, generateResumeTemplate, deleteResume } from "@/actions/resume";
 import { EntryForm } from "./entry-form";
 import useFetch from "@/hooks/use-fetch";
-import { useUser } from "@clerk/nextjs";
+
 import { entriesToMarkdown } from "@/app/lib/helper";
 import { resumeSchema } from "@/app/lib/schema";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+
 import {
   Card,
   CardContent,
@@ -74,7 +67,6 @@ const templates = [
 export default function ResumeBuilder({ initialContent }) {
   const [activeTab, setActiveTab] = useState("edit");
   const [previewContent, setPreviewContent] = useState(initialContent);
-  const { user } = useUser();
   const [resumeMode, setResumeMode] = useState("preview");
   const [atsScore, setAtsScore] = useState(null);
   const [atsFeedback, setAtsFeedback] = useState(null);
@@ -128,6 +120,42 @@ export default function ResumeBuilder({ initialContent }) {
   // Watch form fields for preview updates
   const formValues = watch();
 
+  const getContactMarkdown = useCallback(() => {
+    const { contactInfo } = formValues;
+    const parts = [];
+    if (contactInfo.name) parts.push(`**${contactInfo.name}**`);
+    if (contactInfo.email) parts.push(`📧 ${contactInfo.email}`);
+    if (contactInfo.mobile) parts.push(`📱 ${contactInfo.mobile}`);
+    if (contactInfo.linkedin) parts.push(`💼 [LinkedIn](${contactInfo.linkedin})`);
+    if (contactInfo.twitter) parts.push(`🐦 [Twitter](${contactInfo.twitter})`);
+
+    return parts.length > 0
+      ? `## Contact Information\n\n${parts.join(" | ")}`
+      : "";
+  }, [formValues]);
+
+  const getCombinedContent = useCallback(() => {
+    const { summary, skills, experience, education, projects } = formValues;
+
+    // Debug logging to see what data we have
+    console.log("Form values for content generation:");
+    console.log("- Education entries:", education?.length || 0, education);
+    console.log("- Project entries:", projects?.length || 0, projects);
+    console.log("- Experience entries:", experience?.length || 0);
+
+    const sections = [
+      getContactMarkdown(),
+      summary && `## Professional Summary\n\n${summary}`,
+      skills && `## Skills\n\n${skills}`,
+      entriesToMarkdown(experience, "Work Experience"),
+      entriesToMarkdown(education, "Education"),
+      entriesToMarkdown(projects, "Projects"),
+    ]
+      .filter(Boolean);
+
+    return sections.length > 0 ? sections.join("\n\n") : "Start building your resume by filling out the form or uploading an existing resume.";
+  }, [formValues, getContactMarkdown]);
+
   useEffect(() => {
     if (initialContent) setActiveTab("preview");
   }, [initialContent]);
@@ -138,7 +166,7 @@ export default function ResumeBuilder({ initialContent }) {
       const newContent = getCombinedContent();
       setPreviewContent(newContent ? newContent : initialContent);
     }
-  }, [formValues, activeTab]);
+  }, [formValues, activeTab, initialContent, getCombinedContent]);
 
   // Handle save result
   useEffect(() => {
@@ -173,49 +201,57 @@ export default function ResumeBuilder({ initialContent }) {
     }
   }, [deleteError]);
 
-  const getContactMarkdown = () => {
-    const { contactInfo } = formValues;
-    const parts = [];
-    if (contactInfo.name) parts.push(`**${contactInfo.name}**`);
-    if (contactInfo.email) parts.push(`📧 ${contactInfo.email}`);
-    if (contactInfo.mobile) parts.push(`📱 ${contactInfo.mobile}`);
-    if (contactInfo.linkedin) parts.push(`💼 [LinkedIn](${contactInfo.linkedin})`);
-    if (contactInfo.twitter) parts.push(`🐦 [Twitter](${contactInfo.twitter})`);
-
-    return parts.length > 0
-      ? `## Contact Information\n\n${parts.join(" | ")}`
-      : "";
-  };
-
-  const getCombinedContent = () => {
-    const { summary, skills, experience, education, projects } = formValues;
-    return [
-      getContactMarkdown(),
-      summary && `## Professional Summary\n\n${summary}`,
-      skills && `## Skills\n\n${skills}`,
-      entriesToMarkdown(experience, "Work Experience"),
-      entriesToMarkdown(education, "Education"),
-      entriesToMarkdown(projects, "Projects"),
-    ]
-      .filter(Boolean)
-      .join("\n\n");
-  };
-
   const [isGenerating, setIsGenerating] = useState(false);
+
+  // Convert markdown to HTML for better PDF formatting
+  const convertMarkdownToHTML = (markdown) => {
+    if (!markdown) return '';
+
+    return markdown
+      // Convert headers
+      .replace(/^### (.*$)/gm, '<h3>$1</h3>')
+      .replace(/^## (.*$)/gm, '<h2>$1</h2>')
+      .replace(/^# (.*$)/gm, '<h1>$1</h1>')
+
+      // Convert bold text
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+
+      // Convert italic text
+      .replace(/\*(.*?)\*/g, '<em>$1</em>')
+
+      // Convert links
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
+
+      // Convert line breaks to proper HTML
+      .replace(/\n\n/g, '</p><p>')
+      .replace(/\n/g, '<br>')
+
+      // Wrap in paragraphs
+      .replace(/^(.)/gm, '<p>$1')
+      .replace(/(.*)$/gm, '$1</p>')
+
+      // Clean up multiple paragraph tags
+      .replace(/<\/p><p>/g, '</p>\n<p>')
+      .replace(/<p><h([1-6])>/g, '<h$1>')
+      .replace(/<\/h([1-6])><\/p>/g, '</h$1>')
+      .replace(/<p><\/p>/g, '')
+
+      // Fix empty paragraphs and clean up
+      .replace(/<p>\s*<\/p>/g, '')
+      .replace(/<p><br><\/p>/g, '<br>')
+      .trim();
+  };
 
   const generatePDF = async () => {
     setIsGenerating(true);
     try {
-      // Create a clean version of the resume content for PDF
-      const cleanContent = previewContent.replace(/<[^>]*>/g, '');
-      
       // Use the browser's print functionality
       const printWindow = window.open('', '_blank');
       if (!printWindow) {
         toast.error("Pop-up blocked. Please allow pop-ups for this site to generate PDF.");
         return;
       }
-      
+
       printWindow.document.write(`
         <!DOCTYPE html>
         <html>
@@ -223,54 +259,120 @@ export default function ResumeBuilder({ initialContent }) {
             <title>Resume</title>
             <style>
               body {
-                font-family: Arial, sans-serif;
-                line-height: 1.6;
-                margin: 20px;
+                font-family: 'Times New Roman', serif;
+                line-height: 1.5;
+                margin: 0;
+                padding: 20px;
                 max-width: 800px;
                 margin: 0 auto;
-                padding: 20px;
-              }
-              h1, h2, h3 {
                 color: #333;
+                background: white;
               }
+              
               h1 {
+                font-size: 24px;
                 text-align: center;
-                margin-bottom: 20px;
-              }
-              h2 {
-                border-bottom: 1px solid #ccc;
-                padding-bottom: 5px;
-                margin-top: 20px;
-              }
-              .contact-info {
-                text-align: center;
-                margin-bottom: 20px;
-              }
-              .section {
-                margin-bottom: 15px;
-              }
-              .entry {
-                margin-bottom: 10px;
-              }
-              .entry-title {
+                margin: 0 0 10px 0;
+                color: #2c3e50;
                 font-weight: bold;
               }
-              .entry-subtitle {
+              
+              h2 {
+                font-size: 18px;
+                color: #2c3e50;
+                border-bottom: 2px solid #3498db;
+                padding-bottom: 3px;
+                margin: 20px 0 10px 0;
+                font-weight: bold;
+              }
+              
+              h3 {
+                font-size: 16px;
+                color: #2c3e50;
+                margin: 15px 0 5px 0;
+                font-weight: bold;
+              }
+              
+              p {
+                margin: 8px 0;
+                text-align: justify;
+              }
+              
+              strong {
+                font-weight: bold;
+                color: #2c3e50;
+              }
+              
+              em {
                 font-style: italic;
+                color: #7f8c8d;
+                font-size: 0.95em;
               }
-              .entry-date {
-                color: #666;
-                font-size: 0.9em;
+              
+              a {
+                color: #3498db;
+                text-decoration: none;
               }
-              .entry-description {
-                margin-top: 5px;
+              
+              a:hover {
+                text-decoration: underline;
               }
+              
+              br {
+                line-height: 1.2;
+              }
+              
+              /* Contact info styling */
+              h2:first-of-type + p {
+                text-align: center;
+                font-size: 14px;
+                margin-bottom: 20px;
+                border-bottom: 1px solid #ecf0f1;
+                padding-bottom: 15px;
+              }
+              
               @media print {
                 body {
-                  font-size: 12pt;
+                  font-size: 11pt;
+                  line-height: 1.4;
+                  padding: 15px;
                 }
+                
+                h1 {
+                  font-size: 20pt;
+                  margin-bottom: 8px;
+                }
+                
+                h2 {
+                  font-size: 14pt;
+                  margin: 15px 0 8px 0;
+                  page-break-after: avoid;
+                }
+                
+                h3 {
+                  font-size: 12pt;
+                  margin: 12px 0 4px 0;
+                  page-break-after: avoid;
+                }
+                
+                p {
+                  margin: 6px 0;
+                  orphans: 2;
+                  widows: 2;
+                }
+                
                 .no-print {
-                  display: none;
+                  display: none !important;
+                }
+                
+                /* Avoid page breaks in the middle of sections */
+                h2, h3 {
+                  page-break-inside: avoid;
+                }
+                
+                /* Keep related content together */
+                h3 + p {
+                  page-break-before: avoid;
                 }
               }
             </style>
@@ -282,7 +384,7 @@ export default function ResumeBuilder({ initialContent }) {
               </button>
             </div>
             <div id="resume-content">
-              ${previewContent}
+              ${convertMarkdownToHTML(previewContent)}
             </div>
             <script>
               // Auto-print after a short delay
@@ -293,16 +395,16 @@ export default function ResumeBuilder({ initialContent }) {
           </body>
         </html>
       `);
-      
+
       printWindow.document.close();
-      
+
       // Close the window after printing (or if user cancels)
       setTimeout(() => {
         if (printWindow && !printWindow.closed) {
           printWindow.close();
         }
       }, 5000);
-      
+
       toast.success("PDF generation started. Use your browser's print dialog to save as PDF.");
     } catch (error) {
       console.error("PDF generation error:", error);
@@ -312,16 +414,42 @@ export default function ResumeBuilder({ initialContent }) {
     }
   };
 
-  const onSubmit = async (data) => {
+  const onSubmit = async () => {
+    console.log("Save button clicked - starting save process");
+
     try {
-      const formattedContent = previewContent
-        .replace(/\n/g, "\n")
-        .replace(/\n\s*\n/g, "\n\n")
+      // Get the current content from the form or preview
+      let contentToSave = previewContent;
+      console.log("Preview content length:", contentToSave?.length || 0);
+
+      // If no preview content, generate it from form values
+      if (!contentToSave || contentToSave.trim().length === 0) {
+        console.log("No preview content, generating from form values");
+        contentToSave = getCombinedContent();
+        console.log("Generated content length:", contentToSave?.length || 0);
+      }
+
+      // If still no content, create a basic structure
+      if (!contentToSave || contentToSave.trim().length === 0) {
+        console.log("No content found, creating basic structure");
+        contentToSave = "# Resume\n\nStart building your resume by filling out the form above.";
+      }
+
+      // Preserve proper formatting by keeping line breaks intact
+      const formattedContent = contentToSave
+        .replace(/\n\s*\n\s*\n/g, "\n\n") // Replace multiple line breaks with double line breaks
         .trim();
 
+      console.log("Final content to save:", formattedContent.substring(0, 200) + "...");
+      console.log("Calling saveResumeFn with content");
+
+      toast.info("Saving resume...");
       await saveResumeFn(formattedContent);
+      console.log("Save function completed");
+
     } catch (error) {
       console.error("Save error:", error);
+      toast.error(`Failed to save resume: ${error.message}`);
     }
   };
 
@@ -338,10 +466,10 @@ export default function ResumeBuilder({ initialContent }) {
         toast.error(`Please wait ${waitTime} seconds before trying again.`);
         return null;
       }
-      
+
       // Add a small delay to prevent rapid consecutive requests
       await new Promise(resolve => setTimeout(resolve, 500));
-      
+
       const response = await fetch("/api/resume/enhance", {
         method: "POST",
         headers: {
@@ -355,21 +483,21 @@ export default function ResumeBuilder({ initialContent }) {
 
       if (!response.ok) {
         const errorText = await response.text();
-        
+
         // Handle rate limiting specifically
         if (response.status === 429) {
           toast.error("Rate limit exceeded. Please wait a minute before trying again.");
           throw new Error("Rate limit exceeded. Please wait a minute before trying again.");
         }
-        
+
         throw new Error(errorText || "Failed to improve content");
       }
 
       const data = await response.json();
-      
+
       // Update the last enhancement time
       setLastEnhancementTime(Date.now());
-      
+
       return data.content;
     } catch (error) {
       console.error("AI improvement error:", error);
@@ -386,7 +514,7 @@ export default function ResumeBuilder({ initialContent }) {
     setIsImprovingSummary(true);
     try {
       toast.info("Improving your summary... This may take a moment.");
-      
+
       const improvedContent = await improveWithAI({
         current: formValues.summary,
         type: "summary"
@@ -413,7 +541,7 @@ export default function ResumeBuilder({ initialContent }) {
     setIsImprovingSkills(true);
     try {
       toast.info("Improving your skills section... This may take a moment.");
-      
+
       const improvedContent = await improveWithAI({
         current: formValues.skills,
         type: "skills"
@@ -435,8 +563,33 @@ export default function ResumeBuilder({ initialContent }) {
     const file = event.target.files[0];
     if (!file) return;
 
+    // Validate file type
+    const allowedTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+    const allowedExtensions = ['.pdf', '.doc', '.docx'];
+    const fileName = file.name.toLowerCase();
+    const hasValidExtension = allowedExtensions.some(ext => fileName.endsWith(ext));
+
+    if (!allowedTypes.includes(file.type) && !hasValidExtension) {
+      toast.error("Please upload a PDF or Word document (.pdf, .doc, .docx)");
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+      return;
+    }
+
+    // Validate file size (10MB limit)
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error("File is too large. Maximum size is 10MB.");
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+      return;
+    }
+
     setIsUploading(true);
     try {
+      toast.info("Uploading and processing your resume... This may take a moment.");
+
       const formData = new FormData();
       formData.append("file", file);
 
@@ -446,31 +599,82 @@ export default function ResumeBuilder({ initialContent }) {
       });
 
       if (!response.ok) {
-        const errorData = await response.text();
+        let errorData;
+        try {
+          errorData = await response.text();
+        } catch (e) {
+          errorData = "Failed to upload resume (unknown error)";
+        }
+
+        // Provide more specific error messages
+        if (response.status === 400) {
+          // Check if it's a PDF processing issue
+          if (errorData && errorData.includes("image-based")) {
+            toast.error("This PDF cannot be processed automatically. Please try uploading a Word document (.docx) instead, or manually fill out the form below.", {
+              duration: 8000
+            });
+          } else {
+            toast.error(errorData || "Invalid file format or content. Please check your file and try again.");
+          }
+        } else if (response.status === 413) {
+          toast.error("File is too large. Please upload a smaller file.");
+        } else if (response.status >= 500) {
+          // Check if it's a PDF processing issue in server errors too
+          if (errorData && (errorData.includes("PDF") || errorData.includes("image-based"))) {
+            toast.error("PDF processing failed. Word documents (.docx) work more reliably. You can also fill out the form manually.", {
+              duration: 8000
+            });
+          } else {
+            toast.error("Server error. Please try again in a moment.");
+          }
+        } else {
+          toast.error(errorData || "Failed to upload resume. Please try again.");
+        }
         throw new Error(errorData || "Failed to upload resume");
       }
 
       const data = await response.json();
-      
+
       // Update form values with extracted content
       if (data.content) {
-        const { summary, skills, experience, education, projects } = data.content;
-        
-        // Use the form's setValue method to update values
-        if (summary) setValue("summary", summary);
-        if (skills) setValue("skills", skills);
-        if (experience && experience.length > 0) setValue("experience", experience);
-        if (education && education.length > 0) setValue("education", education);
-        if (projects && projects.length > 0) setValue("projects", projects);
-        
-        // Update preview content
-        setPreviewContent(getCombinedContent());
+        const { summary, skills, experience, education, projects, contactInfo } = data.content;
+
+        // Use the form's setValue method to update values with proper triggering
+        if (summary) setValue("summary", summary, { shouldDirty: true, shouldTouch: true });
+        if (skills) setValue("skills", skills, { shouldDirty: true, shouldTouch: true });
+        if (experience && experience.length > 0) setValue("experience", experience, { shouldDirty: true, shouldTouch: true });
+        if (education && education.length > 0) setValue("education", education, { shouldDirty: true, shouldTouch: true });
+        if (projects && projects.length > 0) setValue("projects", projects, { shouldDirty: true, shouldTouch: true });
+
+        // Update contact info if available
+        if (contactInfo && typeof contactInfo === 'object') {
+          const currentContactInfo = formValues.contactInfo || {};
+          const updatedContactInfo = {
+            ...currentContactInfo,
+            ...(contactInfo.name && { name: contactInfo.name }),
+            ...(contactInfo.email && { email: contactInfo.email }),
+            ...(contactInfo.mobile && { mobile: contactInfo.mobile }),
+            ...(contactInfo.linkedin && { linkedin: contactInfo.linkedin }),
+            ...(contactInfo.location && { location: contactInfo.location })
+          };
+          setValue("contactInfo", updatedContactInfo, { shouldDirty: true, shouldTouch: true });
+          console.log("Updated contact info:", updatedContactInfo);
+        }
+
+        // Force update preview content after a short delay to ensure form values are updated
+        setTimeout(() => {
+          const newContent = getCombinedContent();
+          setPreviewContent(newContent);
+        }, 100);
       }
 
-      toast.success("Resume uploaded successfully!");
+      toast.success("Resume uploaded and processed successfully!");
     } catch (error) {
       console.error("Upload error:", error);
-      toast.error(error.message || "Failed to upload resume");
+      // Don't show duplicate error messages
+      if (!error.message.includes("Failed to upload resume")) {
+        toast.error(error.message || "Failed to upload resume");
+      }
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) {
@@ -489,7 +693,7 @@ export default function ResumeBuilder({ initialContent }) {
     try {
       // Show a toast to inform the user that enhancement might take a while
       toast.info("Enhancing your resume... This may take a minute or two due to rate limits.");
-      
+
       const response = await fetch("/api/resume/enhance", {
         method: "POST",
         headers: {
@@ -504,26 +708,29 @@ export default function ResumeBuilder({ initialContent }) {
       }
 
       const data = await response.json();
-      
+
       // Update form values with enhanced content
       if (data.content) {
         const { summary, skills, experience, education, projects } = data.content;
-        
-        // Use the form's setValue method to update values
-        if (summary) setValue("summary", summary);
-        if (skills) setValue("skills", skills);
-        if (experience && experience.length > 0) setValue("experience", experience);
-        if (education && education.length > 0) setValue("education", education);
-        if (projects && projects.length > 0) setValue("projects", projects);
-        
-        // Update preview content
-        setPreviewContent(getCombinedContent());
+
+        // Use the form's setValue method to update values with proper triggering
+        if (summary) setValue("summary", summary, { shouldDirty: true, shouldTouch: true });
+        if (skills) setValue("skills", skills, { shouldDirty: true, shouldTouch: true });
+        if (experience && experience.length > 0) setValue("experience", experience, { shouldDirty: true, shouldTouch: true });
+        if (education && education.length > 0) setValue("education", education, { shouldDirty: true, shouldTouch: true });
+        if (projects && projects.length > 0) setValue("projects", projects, { shouldDirty: true, shouldTouch: true });
+
+        // Force update preview content after a short delay to ensure form values are updated
+        setTimeout(() => {
+          const newContent = getCombinedContent();
+          setPreviewContent(newContent);
+        }, 100);
       }
 
       toast.success("Resume enhanced successfully!");
     } catch (error) {
       console.error("Enhancement error:", error);
-      
+
       // Provide more specific error messages
       if (error.message.includes("429") || error.message.includes("Too Many Requests")) {
         toast.error("Rate limit exceeded. Please try again in a minute.");
@@ -597,9 +804,10 @@ export default function ResumeBuilder({ initialContent }) {
           </Dialog>
 
           <Button
-            variant="destructive"
-            onClick={handleSubmit(onSubmit)}
+            variant="default"
+            onClick={onSubmit}
             disabled={isSaving}
+            className="mr-2"
           >
             {isSaving ? (
               <>
@@ -608,8 +816,8 @@ export default function ResumeBuilder({ initialContent }) {
               </>
             ) : (
               <>
-                <Save className="h-4 w-4" />
-                Save
+                <Save className="h-4 w-4 mr-2" />
+                Save Resume
               </>
             )}
           </Button>
@@ -675,7 +883,7 @@ export default function ResumeBuilder({ initialContent }) {
               )}
             </CardTitle>
             <CardDescription>
-              Your resume's compatibility with Applicant Tracking Systems
+              Your resume&apos;s compatibility with Applicant Tracking Systems
             </CardDescription>
           </CardHeader>
           {atsFeedback && (
@@ -726,12 +934,12 @@ export default function ResumeBuilder({ initialContent }) {
             {isUploading ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Uploading...
+                Processing Resume...
               </>
             ) : (
               <>
                 <Upload className="h-4 w-4 mr-2" />
-                Upload Existing Resume
+                Upload Resume (Word .docx recommended)
               </>
             )}
           </Button>

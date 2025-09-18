@@ -1,9 +1,24 @@
+"use client";
+
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Quiz from "../_components/quiz";
+import { JobDescriptionStep } from "@/app/interview/job-description-step";
+import { useState } from "react";
+import { defaultQuestionCategories } from "@/app/interview/job-description-step";
 
 export default function MockInterviewPage() {
+  const [jobDescription, setJobDescription] = useState("");
+  const [questionTypes, setQuestionTypes] = useState(defaultQuestionCategories);
+
+  const handleJobDescriptionReady = (jd, types) => {
+    setJobDescription(jd);
+    setQuestionTypes(types);
+  };
+
+  console.log("MockInterviewPage - questionTypes before passing to Quiz:", questionTypes);
+
   return (
     <div className="container mx-auto space-y-4 py-6">
       <div className="flex flex-col space-y-2 mx-2">
@@ -22,7 +37,11 @@ export default function MockInterviewPage() {
         </div>
       </div>
 
-      <Quiz />
+      {jobDescription ? (
+        <Quiz jobDescription={jobDescription} questionTypes={questionTypes} />
+      ) : (
+        <JobDescriptionStep onJobDescriptionReady={handleJobDescriptionReady} />
+      )}
     </div>
   );
 }

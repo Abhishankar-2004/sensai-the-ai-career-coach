@@ -1,0 +1,8 @@
+{
+    "git-auto-push.enabled": true,
+    "git-auto-push.interval": 300,
+    "git-auto-push.commitMessage": "Auto-commit: Changes from {date}",
+    "git-auto-push.includeUntracked": true,
+    "git-auto-push.autoCommit": true,
+    "git-auto-push.autoPush": true
+} 

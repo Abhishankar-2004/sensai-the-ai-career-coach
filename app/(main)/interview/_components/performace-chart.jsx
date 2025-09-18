@@ -42,11 +42,12 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 
-export default function PerformanceChart({ assessments }) {
+export default function PerformanceChart({ assessments, mockInterviews = [] }) {
   const [chartData, setChartData] = useState([]);
   const [categoryData, setCategoryData] = useState([]);
   const [activeTab, setActiveTab] = useState("trend");
   const [timeRange, setTimeRange] = useState("all");
+  const [dataType, setDataType] = useState("assessments"); // "assessments" or "interviews"
   const [stats, setStats] = useState({
     average: 0,
     highest: 0,
@@ -57,67 +58,107 @@ export default function PerformanceChart({ assessments }) {
   });
 
   useEffect(() => {
-    if (assessments && assessments.length > 0) {
-      // Calculate statistics
-      const scores = assessments.map(a => a.quizScore);
-      const average = scores.reduce((a, b) => a + b, 0) / scores.length;
-      const highest = Math.max(...scores);
-      const lowest = Math.min(...scores);
+    const currentData = dataType === "assessments" ? assessments : mockInterviews;
+    
+    if (currentData && currentData.length > 0) {
+      let scores, formattedData, categories = {};
       
-      // Calculate improvement (comparing first and last assessment)
-      let improvement = 0;
-      if (assessments.length >= 2) {
-        const firstScore = assessments[0].quizScore;
-        const lastScore = assessments[assessments.length - 1].quizScore;
-        improvement = lastScore - firstScore;
+      if (dataType === "assessments") {
+        // Handle quiz assessments
+        scores = currentData.map(a => a.quizScore);
+        
+        // Group by category for assessments
+        currentData.forEach(assessment => {
+          const assessmentCategories = assessment.categories || [];
+          assessmentCategories.forEach(category => {
+            if (!categories[category]) {
+              categories[category] = { count: 0, total: 0, average: 0 };
+            }
+            categories[category].count++;
+            categories[category].total += assessment.quizScore;
+            categories[category].average = categories[category].total / categories[category].count;
+          });
+        });
+        
+        formattedData = currentData.map((assessment) => ({
+          date: format(new Date(assessment.createdAt), "MMM dd"),
+          fullDate: new Date(assessment.createdAt),
+          score: assessment.quizScore,
+          categories: assessment.categories || [],
+          improvementTip: assessment.improvementTip,
+          type: 'assessment'
+        }));
+      } else {
+        // Handle mock interviews
+        scores = currentData
+          .filter(interview => interview.overallScore !== null && interview.overallScore !== undefined)
+          .map(interview => interview.overallScore * 10); // Convert to percentage scale
+        
+        // Group by category for mock interviews
+        currentData.forEach(interview => {
+          if (interview.categoryBreakdown) {
+            Object.entries(interview.categoryBreakdown).forEach(([category, data]) => {
+              if (!categories[category]) {
+                categories[category] = { count: 0, total: 0, average: 0, interviews: 0 };
+              }
+              categories[category].count += data.count;
+              categories[category].interviews++;
+              // For interviews, we'll use the percentage as a weight
+              categories[category].total += data.percentage;
+              categories[category].average = categories[category].total / categories[category].interviews;
+            });
+          }
+        });
+        
+        formattedData = currentData.map((interview) => ({
+          date: format(new Date(interview.createdAt), "MMM dd"),
+          fullDate: new Date(interview.createdAt),
+          score: interview.overallScore ? interview.overallScore * 10 : 0,
+          categories: interview.categoryBreakdown ? Object.keys(interview.categoryBreakdown) : [],
+          jobTitle: interview.jobTitle,
+          type: 'interview'
+        }));
       }
       
-      // Group by category
-      const categories = {};
-      assessments.forEach(assessment => {
-        if (!categories[assessment.category]) {
-          categories[assessment.category] = {
-            count: 0,
-            total: 0,
-            average: 0
-          };
+      if (scores.length > 0) {
+        const average = scores.reduce((a, b) => a + b, 0) / scores.length;
+        const highest = Math.max(...scores);
+        const lowest = Math.min(...scores);
+        
+        // Calculate improvement
+        let improvement = 0;
+        if (scores.length >= 2) {
+          improvement = scores[scores.length - 1] - scores[0];
         }
-        categories[assessment.category].count++;
-        categories[assessment.category].total += assessment.quizScore;
-        categories[assessment.category].average = 
-          categories[assessment.category].total / categories[assessment.category].count;
-      });
-      
-      setStats({
-        average,
-        highest,
-        lowest,
-        total: assessments.length,
-        improvement,
-        categories
-      });
-      
-      // Format data for charts
-      const formattedData = assessments.map((assessment) => ({
-        date: format(new Date(assessment.createdAt), "MMM dd"),
-        fullDate: new Date(assessment.createdAt),
-        score: assessment.quizScore,
-        category: assessment.category,
-        improvementTip: assessment.improvementTip
-      }));
-      
-      setChartData(formattedData);
-      
-      // Format category data for pie chart
-      const categoryChartData = Object.entries(categories).map(([name, data]) => ({
-        name,
-        value: data.average,
-        count: data.count
-      }));
-      
-      setCategoryData(categoryChartData);
+        
+        setStats({
+          average,
+          highest,
+          lowest,
+          total: currentData.length,
+          improvement,
+          categories
+        });
+        
+        setChartData(formattedData);
+        
+        // Format category data for pie chart
+        const categoryChartData = Object.entries(categories).map(([name, data]) => ({
+          name,
+          value: data.average,
+          count: data.count,
+          interviews: data.interviews || 0
+        }));
+        
+        setCategoryData(categoryChartData);
+      }
+    } else {
+      // Reset data when no data is available
+      setStats({ average: 0, highest: 0, lowest: 0, total: 0, improvement: 0, categories: {} });
+      setChartData([]);
+      setCategoryData([]);
     }
-  }, [assessments]);
+  }, [assessments, mockInterviews, dataType]);
 
   // Filter data based on time range
   const getFilteredData = () => {
@@ -150,6 +191,7 @@ export default function PerformanceChart({ assessments }) {
   // Custom tooltip for the performance chart
   const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload?.length) {
+      const data = payload[0]?.payload;
       return (
         <div className="bg-background border rounded-lg p-3 shadow-lg">
           <p className="font-medium text-sm mb-1">{label}</p>
@@ -159,10 +201,27 @@ export default function PerformanceChart({ assessments }) {
               <span className="font-medium">{entry.name}:</span> {entry.value}%
             </p>
           ))}
-          {payload[0]?.payload.improvementTip && (
+          {data?.type === 'interview' && data?.jobTitle && (
+            <p className="text-xs text-muted-foreground mt-1">
+              Role: {data.jobTitle}
+            </p>
+          )}
+          {data?.type === 'interview' && data?.categories?.length > 0 && (
+            <div className="mt-1">
+              <p className="text-xs font-medium">Categories:</p>
+              <div className="flex flex-wrap gap-1 mt-1">
+                {data.categories.map((cat, idx) => (
+                  <span key={idx} className="text-xs bg-primary/10 text-primary px-1 rounded capitalize">
+                    {cat}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {data?.improvementTip && (
             <div className="mt-2 pt-2 border-t border-border">
               <p className="text-xs font-medium text-primary">Improvement Tip:</p>
-              <p className="text-xs">{payload[0].payload.improvementTip}</p>
+              <p className="text-xs">{data.improvementTip}</p>
             </div>
           )}
         </div>
@@ -184,35 +243,56 @@ export default function PerformanceChart({ assessments }) {
             </CardTitle>
             <CardDescription>Track your interview preparation progress</CardDescription>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Badge 
-              variant={timeRange === "all" ? "default" : "outline"} 
-              className="cursor-pointer"
-              onClick={() => setTimeRange("all")}
-            >
-              All Time
-            </Badge>
-            <Badge 
-              variant={timeRange === "3months" ? "default" : "outline"} 
-              className="cursor-pointer"
-              onClick={() => setTimeRange("3months")}
-            >
-              3 Months
-            </Badge>
-            <Badge 
-              variant={timeRange === "month" ? "default" : "outline"} 
-              className="cursor-pointer"
-              onClick={() => setTimeRange("month")}
-            >
-              1 Month
-            </Badge>
-            <Badge 
-              variant={timeRange === "week" ? "default" : "outline"} 
-              className="cursor-pointer"
-              onClick={() => setTimeRange("week")}
-            >
-              1 Week
-            </Badge>
+          <div className="flex flex-col sm:flex-row gap-2">
+            {/* Data Type Toggle */}
+            <div className="flex gap-1 p-1 bg-muted rounded-lg">
+              <Badge 
+                variant={dataType === "assessments" ? "default" : "outline"} 
+                className="cursor-pointer px-3 py-1"
+                onClick={() => setDataType("assessments")}
+              >
+                Quiz Assessments
+              </Badge>
+              <Badge 
+                variant={dataType === "interviews" ? "default" : "outline"} 
+                className="cursor-pointer px-3 py-1"
+                onClick={() => setDataType("interviews")}
+              >
+                Mock Interviews
+              </Badge>
+            </div>
+            
+            {/* Time Range Filter */}
+            <div className="flex flex-wrap gap-1">
+              <Badge 
+                variant={timeRange === "all" ? "default" : "outline"} 
+                className="cursor-pointer text-xs"
+                onClick={() => setTimeRange("all")}
+              >
+                All Time
+              </Badge>
+              <Badge 
+                variant={timeRange === "3months" ? "default" : "outline"} 
+                className="cursor-pointer text-xs"
+                onClick={() => setTimeRange("3months")}
+              >
+                3M
+              </Badge>
+              <Badge 
+                variant={timeRange === "month" ? "default" : "outline"} 
+                className="cursor-pointer text-xs"
+                onClick={() => setTimeRange("month")}
+              >
+                1M
+              </Badge>
+              <Badge 
+                variant={timeRange === "week" ? "default" : "outline"} 
+                className="cursor-pointer text-xs"
+                onClick={() => setTimeRange("week")}
+              >
+                1W
+              </Badge>
+            </div>
           </div>
         </div>
       </CardHeader>
@@ -269,11 +349,15 @@ export default function PerformanceChart({ assessments }) {
             </CardHeader>
             <CardContent>
               <div className="flex flex-wrap gap-1">
-                {Object.keys(stats.categories).map(category => (
-                  <Badge key={category} variant="secondary">
-                    {category}
-                  </Badge>
-                ))}
+                {Object.keys(stats.categories).length > 0 ? (
+                  Object.keys(stats.categories).map(category => (
+                    <Badge key={category} variant="secondary">
+                      {category.charAt(0).toUpperCase() + category.slice(1)}
+                    </Badge>
+                  ))
+                ) : (
+                  <p className="text-xs text-muted-foreground">No categories available</p>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -326,42 +410,58 @@ export default function PerformanceChart({ assessments }) {
           
           <TabsContent value="category" className="mt-4">
             <div className="h-[400px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={categoryData}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    outerRadius={150}
-                    fill="#8884d8"
-                    dataKey="value"
-                    nameKey="name"
-                    label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                  >
-                    {categoryData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip 
-                    content={({ active, payload }) => {
-                      if (active && payload && payload.length) {
-                        return (
-                          <div className="bg-background border rounded-lg p-2 shadow-md">
-                            <p className="font-medium">{payload[0].name}</p>
-                            <p className="text-sm">Score: {payload[0].value.toFixed(1)}%</p>
-                            <p className="text-xs text-muted-foreground">
-                              {payload[0].payload.count} assessments
-                            </p>
-                          </div>
-                        );
-                      }
-                      return null;
-                    }}
-                  />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
+              {categoryData.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={categoryData}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      outerRadius={150}
+                      fill="#8884d8"
+                      dataKey="value"
+                      nameKey="name"
+                      label={({ name, percent }) => `${name.charAt(0).toUpperCase() + name.slice(1)}: ${(percent * 100).toFixed(0)}%`}
+                    >
+                      {categoryData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip 
+                      content={({ active, payload }) => {
+                        if (active && payload && payload.length) {
+                          const data = payload[0].payload;
+                          return (
+                            <div className="bg-background border rounded-lg p-2 shadow-md">
+                              <p className="font-medium capitalize">{payload[0].name}</p>
+                              <p className="text-sm">
+                                {dataType === "assessments" ? "Avg Score" : "Avg Weight"}: {payload[0].value.toFixed(1)}%
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {dataType === "assessments" 
+                                  ? `${data.count} questions in ${data.interviews || 0} assessments`
+                                  : `${data.count} questions in ${data.interviews} interviews`
+                                }
+                              </p>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
+                    />
+                    <Legend />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-center">
+                    <PieChartIcon className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                    <p className="text-muted-foreground">No category data available</p>
+                    <p className="text-sm text-muted-foreground">Complete some assessments to see category breakdown</p>
+                  </div>
+                </div>
+              )}
             </div>
           </TabsContent>
           

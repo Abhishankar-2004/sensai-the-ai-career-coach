@@ -2,26 +2,51 @@
 
 import { db } from "@/lib/prisma";
 import { auth } from "@clerk/nextjs/server";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { generateContentWithRetry, handleGeminiError } from "@/lib/gemini-utils";
 import { revalidatePath } from "next/cache";
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
-
 export async function saveResume(content) {
+  console.log("saveResume action called with content length:", content?.length || 0);
+  
   const { userId } = await auth();
-  if (!userId) throw new Error("Unauthorized");
+  console.log("User ID from auth:", userId);
+  
+  if (!userId) {
+    console.error("No user ID found - user not authenticated");
+    throw new Error("Unauthorized");
+  }
 
   const user = await db.user.findUnique({
     where: { clerkUserId: userId },
   });
-
-  if (!user) throw new Error("User not found");
+  
+  console.log("User found:", user ? "Yes" : "No");
+  if (!user) {
+    console.error("User not found in database for clerkUserId:", userId);
+    throw new Error("User not found");
+  }
 
   try {
+    console.log("Starting ATS analysis for user industry:", user.industry);
     // Generate ATS score and feedback
-    const atsAnalysis = await analyzeResume(content, user.industry);
+    let atsAnalysis;
+    try {
+      atsAnalysis = await analyzeResume(content, user.industry);
+      console.log("ATS analysis completed with score:", atsAnalysis.score);
+    } catch (atsError) {
+      console.warn("ATS analysis failed, using default values:", atsError.message);
+      atsAnalysis = {
+        score: 0,
+        feedback: JSON.stringify({
+          strengths: [],
+          improvements: ["ATS analysis temporarily unavailable"],
+          keywords: [],
+          suggestions: []
+        })
+      };
+    }
     
+    console.log("Saving resume to database for user ID:", user.id);
     const resume = await db.resume.upsert({
       where: {
         userId: user.id,
@@ -38,6 +63,8 @@ export async function saveResume(content) {
         feedback: atsAnalysis.feedback,
       },
     });
+    
+    console.log("Resume saved successfully with ID:", resume.id);
 
     revalidatePath("/resume");
     return resume;
@@ -69,7 +96,7 @@ async function analyzeResume(content, industry) {
   `;
 
   try {
-    const result = await model.generateContent(prompt);
+    const result = await generateContentWithRetry(prompt, "gemini-1.5-pro");
     const response = result.response;
     const analysis = JSON.parse(response.text().trim());
     return {
@@ -149,7 +176,7 @@ export async function improveWithAI({ current, type }) {
 
   try {
     console.log("Sending prompt to Gemini:", prompt);
-    const result = await model.generateContent(prompt);
+    const result = await generateContentWithRetry(prompt, "gemini-1.5-pro");
     const response = result.response;
     const improvedContent = response.text().trim();
     
@@ -163,7 +190,8 @@ export async function improveWithAI({ current, type }) {
     return improvedContent;
   } catch (error) {
     console.error("Error improving content:", error);
-    throw new Error("Failed to improve content. Please try again.");
+    const errorInfo = handleGeminiError(error);
+    throw new Error(errorInfo.message);
   }
 }
 
@@ -196,12 +224,13 @@ export async function generateResumeTemplate(template) {
   `;
 
   try {
-    const result = await model.generateContent(prompt);
+    const result = await generateContentWithRetry(prompt, "gemini-1.5-pro");
     const response = result.response;
     return response.text().trim();
   } catch (error) {
     console.error("Error generating template:", error);
-    throw new Error("Failed to generate template");
+    const errorInfo = handleGeminiError(error);
+    throw new Error(errorInfo.message);
   }
 }
 

@@ -27,6 +27,7 @@ model User {
   assessments   Assessment[]
   resume        Resume?
   coverLetter   CoverLetter[]
+  mockInterviews MockInterview[]
 }
 
 model Assessment {
@@ -35,7 +36,7 @@ model Assessment {
   user          User      @relation(fields: [userId], references: [id])
   quizScore     Float     // Overall quiz score
   questions     Json[]    // Array of {question, answer, userAnswer, isCorrect}
-  category      String    // "Technical", "Behavioral", etc.
+  categories    String[]  // Array of categories like "Technical", "Behavioral", etc.
   improvementTip String?  // AI-generated improvement tip
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -96,4 +97,44 @@ model IndustryInsight {
   nextUpdate    DateTime  // Scheduled update time
 
   @@index([industry])
+}
+
+model MockInterview {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id])
+  
+  // Job details
+  jobTitle        String
+  companyName     String?
+  jobDescription  String    @db.Text
+  
+  // Interview configuration
+  questionCount   Int
+  questionTypes   String[]  // ["technical", "behavioral", "situational"]
+  
+  // Generated questions
+  questions       Json[]    // Array of { question: string, type: string, relevance?: string, skillsAssessed?: string[] }
+  
+  // Category analysis
+  categoryBreakdown Json?   // { category_name: { count: number, percentage: number, description: string } }
+  
+  // User responses and feedback
+  responses       Json[]    // Array of { userAnswer: string, feedback: { score: number, strengths: string[], improvements: string[], detailedFeedback: string } }
+  
+  // Interview progress
+  currentQuestion Int       @default(0)
+  status          String    @default("in_progress") // "in_progress", "completed"
+  
+  // Overall results
+  overallScore    Float?
+  overallFeedback String?   @db.Text
+  
+  // Timestamps
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  completedAt     DateTime?
+
+  @@index([userId])
+  @@index([status])
 }

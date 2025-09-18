@@ -2,7 +2,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { ClerkProvider } from "@clerk/nextjs";
 import { Toaster } from "sonner";
-import Header from "@/components/header";
+import HeaderClient from "@/components/header-client";
 import { ThemeProvider } from "@/components/theme-provider";
 import { dark } from "@clerk/themes";
 
@@ -31,7 +31,7 @@ export default function RootLayout({ children }) {
             enableSystem
             disableTransitionOnChange
           >
-            <Header />
+            <HeaderClient />
             <main className="min-h-screen">{children}</main>
             <Toaster richColors />
 
